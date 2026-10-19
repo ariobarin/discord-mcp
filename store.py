@@ -1,4 +1,7 @@
-"""SQLite message cache with full-text search."""
+"""SQLite message cache with full-text search.
+
+Writes are committed in batches (see `commit`) to spare SD cards and other flash storage.
+"""
 
 import sqlite3
 from pathlib import Path
@@ -39,11 +42,12 @@ COLUMNS = "id, channel_id, channel, guild, author, content, attachments, created
 class Store:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path, check_same_thread=False)
+        self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
-        self.db.executescript("PRAGMA journal_mode=WAL;" + SCHEMA)
+        self.db.executescript("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;" + SCHEMA)
 
     def save(self, rows: list[dict]) -> None:
+        """Upsert messages. Not committed until `commit`; this connection already sees them."""
         self.db.executemany(
             f"""INSERT INTO messages ({COLUMNS})
                 VALUES (:id, :channel_id, :channel, :guild, :author, :content,
@@ -54,32 +58,38 @@ class Store:
                     edited_at = excluded.edited_at""",
             rows,
         )
+
+    def commit(self) -> None:
         self.db.commit()
 
+    def _rows(self, sql: str, *args) -> list[dict]:
+        return [dict(r) for r in self.db.execute(sql, args)]
+
     def search(self, query: str, limit: int) -> list[dict]:
-        sql = f"""SELECT {", ".join("m." + c for c in COLUMNS.split(", "))}
-                  FROM messages_fts f JOIN messages m ON m.id = f.rowid
-                  WHERE messages_fts MATCH ? ORDER BY m.created_at DESC LIMIT ?"""
-        return [dict(r) for r in self.db.execute(sql, (query, limit))]
+        cols = ", ".join("m." + c for c in COLUMNS.split(", "))
+        return self._rows(
+            f"""SELECT {cols} FROM messages_fts f JOIN messages m ON m.id = f.rowid
+                WHERE messages_fts MATCH ? ORDER BY m.created_at DESC LIMIT ?""",
+            query, limit,
+        )
 
     def recent(self, since: str, limit: int) -> list[dict]:
-        sql = f"SELECT {COLUMNS} FROM messages WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?"
-        return [dict(r) for r in self.db.execute(sql, (since, limit))]
+        return self._rows(
+            f"SELECT {COLUMNS} FROM messages WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?",
+            since, limit,
+        )
 
     def conversation(self, channel_id: int, before: str | None, limit: int) -> list[dict]:
-        sql = f"""SELECT {COLUMNS} FROM messages
-                  WHERE channel_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?"""
-        rows = self.db.execute(sql, (channel_id, before or "9999", limit))
-        return [dict(r) for r in rows][::-1]
-
-    def oldest(self, channel_id: int) -> str | None:
-        row = self.db.execute(
-            "SELECT MIN(created_at) FROM messages WHERE channel_id = ?", (channel_id,)
-        ).fetchone()
-        return row[0]
+        """Up to `limit` messages before `before` (default: now), oldest first."""
+        rows = self._rows(
+            f"""SELECT {COLUMNS} FROM messages WHERE channel_id = ? AND created_at < ?
+                ORDER BY created_at DESC LIMIT ?""",
+            channel_id, before or "9999", limit,
+        )
+        return rows[::-1]
 
     def channels(self) -> list[dict]:
-        sql = """SELECT channel_id, channel, guild, COUNT(*) AS messages,
-                        MAX(created_at) AS last_message
-                 FROM messages GROUP BY channel_id ORDER BY last_message DESC"""
-        return [dict(r) for r in self.db.execute(sql)]
+        return self._rows(
+            """SELECT channel_id, channel, guild, COUNT(*) AS messages, MAX(created_at) AS last_message
+               FROM messages GROUP BY channel_id ORDER BY last_message DESC"""
+        )

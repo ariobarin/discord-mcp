@@ -14,8 +14,9 @@ from fastmcp.server.middleware import AuthMiddleware
 
 from store import Store
 
-DATA = Path(os.environ.get("DATA_DIR", "data"))
-store = Store(DATA / "messages.db")
+COMMIT_SECONDS = 60  # batch writes; a crash loses at most this much of the cache
+
+store = Store(Path(os.environ.get("DATA_DIR", "data")) / "messages.db")
 client = discord.Client()
 log = logging.getLogger("discord-mcp")
 
@@ -57,20 +58,32 @@ async def on_message_edit(_, m: discord.Message):
     store.save([to_row(m)])
 
 
-def exit_on_failure(task: asyncio.Task) -> None:
-    """If the Discord connection dies (bad token, ban), stop so the container restarts and it shows in logs."""
-    if not task.cancelled() and task.exception():
-        log.error("Discord client stopped: %r", task.exception())
+async def run_discord():
+    """Stay connected to Discord; if that fails (bad token, ban), exit so the container restarts and logs it."""
+    try:
+        await client.start(os.environ["DISCORD_TOKEN"])
+    except Exception as e:
+        log.error("Discord client stopped: %r", e)
+        store.commit()
         os._exit(1)
+
+
+async def commit_periodically():
+    while True:
+        await asyncio.sleep(COMMIT_SECONDS)
+        store.commit()
 
 
 @asynccontextmanager
 async def lifespan(_):
-    task = asyncio.create_task(client.start(os.environ["DISCORD_TOKEN"]))
-    task.add_done_callback(exit_on_failure)
-    yield
-    await client.close()
-    task.cancel()
+    tasks = [asyncio.create_task(run_discord()), asyncio.create_task(commit_periodically())]
+    try:
+        yield
+    finally:
+        for t in tasks:
+            t.cancel()
+        await client.close()
+        store.commit()
 
 
 def is_owner(ctx) -> bool:
@@ -93,21 +106,23 @@ mcp = FastMCP(
 )
 
 
+# Tools are async so every database access happens on the event loop thread.
+
 @mcp.tool
-def search(query: str, limit: int = 50) -> list[dict]:
+async def search(query: str, limit: int = 50) -> list[dict]:
     """Full-text search over cached messages, newest first. Supports FTS5 syntax: "exact phrase", OR, NOT, prefix*."""
     return store.search(query, limit)
 
 
 @mcp.tool
-def recent(hours: float = 24, limit: int = 200) -> list[dict]:
+async def recent(hours: float = 24, limit: int = 200) -> list[dict]:
     """Messages from the last N hours across every channel, newest first."""
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     return store.recent(since.isoformat(), limit)
 
 
 @mcp.tool
-def list_channels() -> list[dict]:
+async def list_channels() -> list[dict]:
     """Every cached DM, group chat and server channel, most recently active first."""
     return store.channels()
 
@@ -115,22 +130,21 @@ def list_channels() -> list[dict]:
 @mcp.tool
 async def conversation(channel_id: str, before: str | None = None, limit: int = 50) -> list[dict]:
     """Messages in one channel, oldest to newest, ending before an ISO timestamp (default: now).
-    Reads the cache; only asks Discord when the cache runs out, and caches what it gets."""
+    Reads the cache; only asks Discord for older history when the cache runs out, and caches it."""
     cid = int(channel_id)
     rows = store.conversation(cid, before, limit)
     if len(rows) < limit:
         channel = client.get_channel(cid) or await client.fetch_channel(cid)
-        oldest = store.oldest(cid)
-        start = min(filter(None, [before, oldest]), default=None)
-        older = [m async for m in channel.history(
-            limit=limit - len(rows),
-            before=datetime.fromisoformat(start) if start else None,
-        )]
-        store.save([to_row(m) for m in older])
+        start = rows[0]["created_at"] if rows else before
+        older = channel.history(limit=limit - len(rows), before=datetime.fromisoformat(start) if start else None)
+        store.save([to_row(m) async for m in older])
         rows = store.conversation(cid, before, limit)
     return rows
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    mcp.run(transport="http", host="0.0.0.0", port=8000, show_banner=False)
+    mcp.run(
+        transport="http", host="0.0.0.0", port=8000, show_banner=False,
+        uvicorn_config={"access_log": False},
+    )

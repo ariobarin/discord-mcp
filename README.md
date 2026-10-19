@@ -42,8 +42,12 @@ discord-mcp.example.com {
 
 **5. Connect Claude.** In Claude, go to Settings → Connectors → Add custom connector, enter `https://<your-domain>/mcp`, and sign in with Discord.
 
+## Storage
+
+Built to be gentle on SD cards: the cache commits in batches once a minute (a crash loses at most that minute), Docker logs are capped at 2 MB, and request logging is off. It runs fine on a Raspberry Pi 4.
+
 ## Security
 
-Only the Discord account whose token the server runs on can sign in; anyone else gets denied. Still, `data/` holds a copy of your messages and `.env` holds your token, so treat the machine like it is logged into your account. Changing your Discord password revokes the token.
+Only the Discord account whose token the server runs on can sign in; anyone else gets denied. Still, the `data` volume holds a copy of your messages and `.env` holds your token, so treat the machine like it is logged into your account. The container runs as a non-root user on a read-only filesystem. Changing your Discord password revokes the token.
 
 Auth lives in the server rather than the proxy because Claude connectors need OAuth with dynamic client registration. Keep `BIND_ADDR` on a private address so the only way in is through your HTTPS proxy.

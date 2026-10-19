@@ -3,7 +3,17 @@ services:
     build: .
     env_file: .env
     volumes:
-      - ./data:/data
+      - data:/data
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${PORT:-8000}:8000"
+    read_only: true
+    tmpfs: /tmp
+    logging:
+      driver: local
+      options:
+        max-size: 1m
+        max-file: "2"
     restart: unless-stopped
+
+volumes:
+  data:
