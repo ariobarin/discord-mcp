@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 from fastmcp.server.auth.providers.discord import DiscordProvider
 from fastmcp.server.middleware import AuthMiddleware
 from fastmcp.utilities.types import File, Image
-from mcp.types import ResourceLink, TextContent
+from mcp.types import TextContent
 
 from store import Store
 
@@ -155,7 +155,8 @@ async def attachment(channel_id: str, message_id: str, index: int = 0) -> list:
     message = await channel.fetch_message(int(message_id))
     a = message.attachments[index]
     kind = a.content_type or "application/octet-stream"
-    link = ResourceLink(type="resource_link", uri=a.url, name=a.filename, mimeType=kind, size=a.size)
+    # Plain text rather than a resource_link block: claude.ai doesn't render those yet.
+    link = TextContent(type="text", text=f"Download {a.filename} ({kind}, {a.size} bytes): {a.url}")
     if kind.startswith("image/") and a.width:
         # Ask Discord's media proxy for a resized WebP so the Pi never touches full-size images.
         scale = min(1, IMAGE_SIDE / max(a.width, a.height))
