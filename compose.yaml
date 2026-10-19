@@ -4,11 +4,6 @@ services:
     env_file: .env
     volumes:
       - ./data:/data
-    restart: unless-stopped
-
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-8000}:8000"
     restart: unless-stopped
