@@ -51,3 +51,7 @@ Built to be gentle on SD cards: the cache commits in batches once a minute (a cr
 Only the Discord account whose token the server runs on can sign in; anyone else gets denied. Still, the `data` volume holds a copy of your messages and `.env` holds your token, so treat the machine like it is logged into your account. The container runs as a non-root user on a read-only filesystem. Changing your Discord password revokes the token.
 
 Auth lives in the server rather than the proxy because Claude connectors need OAuth with dynamic client registration. Keep `BIND_ADDR` on a private address so the only way in is through your HTTPS proxy.
+
+## Contributing
+
+Issues and PRs welcome, including from AI agents using this server. CI checks every push. The reference deployment pulls `main` every 5 minutes and rebuilds when it changes, so merged fixes go live on their own.
