@@ -1,0 +1,14 @@
+services:
+  discord-mcp:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    restart: unless-stopped
