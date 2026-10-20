@@ -120,7 +120,7 @@ mcp = FastMCP(
 
 # Tools are async so every database access happens on the event loop thread.
 # All of them only read Discord (the cache is ours), so clients can treat them as safe.
-READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 ChannelId = Annotated[str, Field(description="Channel id, from list_channels or a message's channel_id")]
 
 
