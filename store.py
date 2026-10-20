@@ -65,13 +65,17 @@ class Store:
     def _rows(self, sql: str, *args) -> list[dict]:
         return [dict(r) for r in self.db.execute(sql, args)]
 
-    def search(self, query: str, limit: int) -> list[dict]:
+    def search(self, query: str, limit: int, channel_id: int | None = None) -> list[dict]:
         cols = ", ".join("m." + c for c in COLUMNS.split(", "))
-        return self._rows(
-            f"""SELECT {cols} FROM messages_fts f JOIN messages m ON m.id = f.rowid
-                WHERE messages_fts MATCH ? ORDER BY m.created_at DESC LIMIT ?""",
-            query, limit,
-        )
+        sql = f"""SELECT {cols} FROM messages_fts f JOIN messages m ON m.id = f.rowid
+                  WHERE messages_fts MATCH ? AND (? IS NULL OR m.channel_id = ?)
+                  ORDER BY m.created_at DESC LIMIT ?"""
+        try:
+            return self._rows(sql, query, channel_id, channel_id, limit)
+        except sqlite3.OperationalError:
+            # Plain text with stray punctuation isn't valid FTS5 syntax; search the words literally.
+            words = " ".join('"' + w.replace('"', '""') + '"' for w in query.split())
+            return self._rows(sql, words, channel_id, channel_id, limit) if words else []
 
     def recent(self, since: str, limit: int) -> list[dict]:
         return self._rows(
