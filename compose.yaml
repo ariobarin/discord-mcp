@@ -2,6 +2,8 @@ services:
   discord-mcp:
     build: .
     env_file: .env
+    environment:
+      MCP_TRANSPORT: http
     volumes:
       - data:/data
     ports:
