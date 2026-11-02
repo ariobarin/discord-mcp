@@ -63,7 +63,9 @@ class Store:
         self.db.commit()
 
     def _rows(self, sql: str, *args) -> list[dict]:
-        return [dict(r) for r in self.db.execute(sql, args)]
+        # Ids as strings, like Discord's API: they overflow JSON clients' 53-bit numbers.
+        return [{k: str(v) if k in ("id", "channel_id") else v for k, v in dict(r).items()}
+                for r in self.db.execute(sql, args)]
 
     def search(self, query: str, limit: int, channel_id: int | None = None) -> list[dict]:
         cols = ", ".join("m." + c for c in COLUMNS.split(", "))
