@@ -46,7 +46,8 @@ def attachments_of(m: discord.Message) -> list[discord.Attachment]:
 
 def content_of(m: discord.Message) -> str:
     forwarded = [s.content for s in m.message_snapshots if s.content]
-    return "\n".join([m.content, *(f"[Forwarded] {c}" for c in forwarded)]).strip()
+    # clean_content shows mentions as @name and #channel instead of <@123>.
+    return "\n".join([m.clean_content, *(f"[Forwarded] {c}" for c in forwarded)]).strip()
 
 
 def pdf_text(data: bytes) -> str:
@@ -182,7 +183,8 @@ async def conversation(channel_id: ChannelId,
                        before: Annotated[str | None, Field(description="ISO timestamp; page back by passing the oldest created_at you have")] = None,
                        limit: Annotated[int, Field(ge=1, le=100)] = 50) -> list[dict]:
     """Messages in one channel, oldest to newest, ending before an ISO timestamp (default: now).
-    Reads the cache; only asks Discord for older history when the cache runs out, and caches it."""
+    Reads the cache; only asks Discord for older history when the cache runs out, and caches it.
+    Fewer than `limit` messages back means you've reached the start of the channel."""
     cid = int(channel_id)
     rows = store.conversation(cid, before, limit)
     if len(rows) < limit:
