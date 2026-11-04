@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated
 
 import discord
+import pypdfium2 as pdfium
 from pypdf import PdfReader
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -25,6 +26,7 @@ HTTP = os.environ.get("MCP_TRANSPORT", "stdio") == "http"  # stdio for local cli
 COMMIT_SECONDS = 60  # batch writes; a crash loses at most this much of the cache
 IMAGE_SIDE = 1568  # longest side Claude looks at; Discord's CDN does the resizing
 INLINE_LIMIT = 4_000_000  # bytes of a non-image file to hand to the model directly
+PDF_PAGES = 5  # pages of a PDF to show as images; the text covers every page
 
 store = Store(Path(os.environ.get("DATA_DIR", Path(__file__).with_name("data"))) / "messages.db")
 client = discord.Client()
@@ -57,6 +59,19 @@ def pdf_text(data: bytes) -> str:
     if fields:
         pages += "\n\n--- Filled form fields ---\n" + "\n".join(f"{k}: {v}" for k, v in fields.items())
     return pages
+
+
+def pdf_images(data: bytes) -> list[Image]:
+    """The first pages as pictures, so handwriting, signatures and markup are visible too."""
+    pdf = pdfium.PdfDocument(data)
+    pdf.init_forms()  # draw filled-in form fields
+    images = []
+    for page in list(pdf)[:PDF_PAGES]:
+        w, h = page.get_size()
+        out = io.BytesIO()
+        page.render(scale=IMAGE_SIDE / max(w, h), may_draw_forms=True).to_pil().convert("RGB").save(out, "JPEG", quality=75)
+        images.append(Image(data=out.getvalue(), format="jpeg"))
+    return images
 
 
 def to_row(m: discord.Message) -> dict:
@@ -198,7 +213,7 @@ async def conversation(channel_id: ChannelId,
 async def attachment(channel_id: ChannelId, message_id: Annotated[str, Field(description="Message id")],
                      index: Annotated[int, Field(ge=0, description="Which attachment, 0 for the first")] = 0) -> list:
     """Open a message's attachment, including those of a message it forwards. Images come back as images
-    you can see; PDFs (text and filled form fields) and text files up to 4 MB come back as text;
+    you can see; PDFs (text, filled form fields, and the first pages as images) and text files up to 4 MB come back as text;
     everything gets a fresh download link (straight from Discord)."""
     channel = client.get_channel(int(channel_id)) or await client.fetch_channel(int(channel_id))
     files = attachments_of(await channel.fetch_message(int(message_id)))
@@ -215,11 +230,19 @@ async def attachment(channel_id: ChannelId, message_id: Annotated[str, Field(des
         url = f"{a.proxy_url}{sep}format=webp&width={int(a.width * scale)}&height={int(a.height * scale)}"
         return [Image(data=await client.http.get_from_cdn(url), format="webp"), link]
     if a.size <= INLINE_LIMIT and kind.split(";")[0] == "application/pdf":
-        # As text: claude.ai doesn't render embedded PDF resources yet.
+        # Text plus page images: claude.ai doesn't render embedded PDF resources yet.
+        data = await a.read()
         try:
-            return [TextContent(type="text", text=pdf_text(await a.read())), link]
+            text = await asyncio.to_thread(pdf_text, data)
         except Exception as e:
-            log.warning("Couldn't read %s: %r", a.filename, e)
+            log.warning("Couldn't read the text of %s: %r", a.filename, e)
+            text = "(couldn't extract text)"
+        try:
+            images = await asyncio.to_thread(pdf_images, data)
+        except Exception as e:
+            log.warning("Couldn't render %s: %r", a.filename, e)
+            images = []
+        return [TextContent(type="text", text=text), *images, link]
     if a.size <= INLINE_LIMIT and kind.startswith("text/"):
         return [TextContent(type="text", text=(await a.read()).decode("utf-8", "replace")), link]
     return [link]
