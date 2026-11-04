@@ -67,17 +67,17 @@ class Store:
         return [{k: str(v) if k in ("id", "channel_id") else v for k, v in dict(r).items()}
                 for r in self.db.execute(sql, args)]
 
-    def search(self, query: str, limit: int, channel_id: int | None = None) -> list[dict]:
+    def search(self, query: str, limit: int) -> list[dict]:
         cols = ", ".join("m." + c for c in COLUMNS.split(", "))
         sql = f"""SELECT {cols} FROM messages_fts f JOIN messages m ON m.id = f.rowid
-                  WHERE messages_fts MATCH ? AND (? IS NULL OR m.channel_id = ?)
+                  WHERE messages_fts MATCH ?
                   ORDER BY m.created_at DESC LIMIT ?"""
         try:
-            return self._rows(sql, query, channel_id, channel_id, limit)
+            return self._rows(sql, query, limit)
         except sqlite3.OperationalError:
             # Plain text with stray punctuation isn't valid FTS5 syntax; search the words literally.
             words = " ".join('"' + w.replace('"', '""') + '"' for w in query.split())
-            return self._rows(sql, words, channel_id, channel_id, limit) if words else []
+            return self._rows(sql, words, limit) if words else []
 
     def recent(self, since: str, limit: int) -> list[dict]:
         return self._rows(
@@ -96,6 +96,6 @@ class Store:
 
     def channels(self) -> list[dict]:
         return self._rows(
-            """SELECT channel_id, channel, guild, COUNT(*) AS messages, MAX(created_at) AS last_message
-               FROM messages GROUP BY channel_id ORDER BY last_message DESC"""
+            """SELECT channel_id, channel, guild, NULL AS guild_id, MAX(created_at) AS last_message
+               FROM messages GROUP BY channel_id"""
         )

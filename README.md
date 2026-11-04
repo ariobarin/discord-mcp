@@ -2,15 +2,15 @@
 
 An MCP server with read-only access to your own Discord: DMs, group chats and servers.
 
-It stays connected to your account the way the desktop app does and keeps every message in a local SQLite cache with full-text search. Lookups hit the cache, not Discord; older history is fetched only when asked for, then cached.
+It stays connected to your account the way the desktop app does and keeps every message in a local SQLite cache with full-text search. Lookups hit the cache, not Discord; older history is fetched only when asked for, then cached. Searching inside one server or channel uses Discord's own search, so it covers history the cache has never seen.
 
 > Automating a user account is against Discord's Terms of Service. This only reads and behaves like a normal client, but use it at your own risk.
 
 | Tool | |
 |---|---|
-| `search` | Full-text search, optionally within one channel |
+| `search` | Full-text search over the cache, or over a server's or channel's whole history (and its pins) through Discord's own search |
 | `recent` | Everything from the last N hours |
-| `list_channels` | Every DM, group and channel, most recent first |
+| `list_channels` | Every DM, group and channel you can read, with server ids, filterable by name |
 | `conversation` | One channel in order, fetching older history as needed |
 | `attachment` | Images the model can see, PDFs (with form fields) and text it can read, plus a download link; works on forwards too |
 
