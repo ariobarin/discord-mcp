@@ -12,7 +12,7 @@ It stays connected to your account the way the desktop app does and keeps every 
 | `recent` | Everything from the last N hours |
 | `list_channels` | Every DM, group and channel, most recent first |
 | `conversation` | One channel in order, fetching older history as needed |
-| `attachment` | Images the model can see, PDFs (with form fields) and text it can read, plus a download link; works on forwards too |
+| `attachment` | Images the model can see, PDFs as text (with form fields) plus page images, text files, and a download link; works on forwards too |
 
 ## Your token
 
